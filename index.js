@@ -47,16 +47,10 @@ T.get(path, {screen_name: user}, function(err, reply) {
 
         var previousSet = new sets.Set(result['ids']);
         var currentSet = new sets.Set(reply['ids']);
-
-        // temp fake loss of follower
-        //currentSet.remove(reply['ids'][0]);
-
-        // compare diff of sets
         var difference = previousSet.difference(currentSet).array();
 
         var lostFollowers = new Array();
         var gainedFollowers = new Array();
-
         difference.forEach(function(element) {
           if (currentSet.has(element)) {
             gainedFollowers.push(element);
@@ -69,18 +63,19 @@ T.get(path, {screen_name: user}, function(err, reply) {
         util.log('lost: ' + lostFollowers);
         util.log('gained: ' + gainedFollowers);
 
-        sendgrid.send({
-          to: 'jesse@rebounds.net',
-          from: 'twitterdelta@rebounds.net',
-          subject: 'Your followers changed!',
-          text: 'lost: ' + lostFollowers + ' -- ' + 'gained: ' + gainedFollowers
-        }, function(err, json) {
-          if (err) { return console.error(err); }
-            console.log(json);
+        if (lostFollowers.length || gainedFollowers.length) {
+          sendgrid.send({
+            to: 'jesse@rebounds.net',
+            from: 'twitterdelta@rebounds.net',
+            subject: 'Your followers changed!',
+            text: 'lost: ' + lostFollowers + ' -- ' + 'gained: ' + gainedFollowers
+          }, function(err, json) {
+            if (err) { return console.error(err); }
+              console.log(json);
           });
         }
+      }
 
-      // 'upsert' latest followers
       collection.update({'_id': 'friends'}, {$set: {'ids': reply['ids']}}, {'upsert': true}, function(err, docs) {
         if(err) throw err;
         db.close();
