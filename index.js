@@ -31,7 +31,7 @@ T.get(path, {screen_name: user}, function(err, reply) {
 
   util.log('GET: successful');
 
-  util.log('Connecting to ' + dbConnStr + '...');
+  util.log('Connecting to db...');
   MongoClient.connect(dbConnStr, function(err, db) {
     if(err) throw err;
     util.log('Connected.');
