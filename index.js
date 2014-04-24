@@ -4,6 +4,11 @@ var sets = require('simplesets');
 var MongoClient = require('mongodb').MongoClient
 var format = require('util').format;
 
+var sendgrid = null;
+if (process.env.SENDGRID_USERNAME && process.env.SENDGRID_PASSWORD) {
+  sendgrid = require('sendgrid')(process.env.SENDGRID_USERNAME, process.env.SENDGRID_PASSWORD);
+}
+
 var consumerKey = process.env.CONSUMER_KEY;
 var consumerSecret = process.env.CONSUMER_SECRET;
 var accessToken = process.env.ACCESS_TOKEN;
@@ -19,7 +24,6 @@ var T = new Twit({
   access_token: accessToken,
   access_token_secret: accessTokenSecret
 });
-
 
 util.log('GET: ' + path);
 T.get(path, {screen_name: user}, function(err, reply) {
@@ -64,7 +68,17 @@ T.get(path, {screen_name: user}, function(err, reply) {
         util.log('Report:');
         util.log('lost: ' + lostFollowers);
         util.log('gained: ' + gainedFollowers);
-      }
+
+        sendgrid.send({
+          to: 'jesse@rebounds.net',
+          from: 'twitterdelta@rebounds.net',
+          subject: 'Your followers changed!',
+          text: 'lost: ' + lostFollowers + ' -- ' + 'gained: ' + gainedFollowers
+        }, function(err, json) {
+          if (err) { return console.error(err); }
+            console.log(json);
+          });
+        }
 
       // 'upsert' latest followers
       collection.update({'_id': 'friends'}, {$set: {'ids': reply['ids']}}, {'upsert': true}, function(err, docs) {

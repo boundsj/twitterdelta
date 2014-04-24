@@ -6,7 +6,8 @@
   "dependencies": {
     "twit": "^1.1.13",
     "mongodb": "^1.4.2",
-    "simplesets": "^1.2.0"
+    "simplesets": "^1.2.0",
+    "sendgrid": "^1.0.3"
   },
   "devDependencies": {},
   "scripts": {
