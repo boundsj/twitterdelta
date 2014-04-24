@@ -8,6 +8,10 @@ var consumerKey = process.env.CONSUMER_KEY;
 var consumerSecret = process.env.CONSUMER_SECRET;
 var accessToken = process.env.ACCESS_TOKEN;
 var accessTokenSecret = process.env.ACCESS_TOKEN_SECRET;
+var dbConnStr = process.env.MONGOHQ_URL;
+
+var path = 'followers/ids';
+var user = 'boundsj';
 
 var T = new Twit({
   consumer_key: consumerKey,
@@ -16,13 +20,6 @@ var T = new Twit({
   access_token_secret: accessTokenSecret
 });
 
-var path = 'followers/ids';
-var user = 'boundsj';
-
-var dbHost = '127.0.0.1';
-var dbPort = '27017';
-var dbPath = '/twitter_friends';
-var dbConnStr = 'mongodb://' + dbHost + ':' + dbPort + dbPath;
 
 util.log('GET: ' + path);
 T.get(path, {screen_name: user}, function(err, reply) {
