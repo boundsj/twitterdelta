@@ -3,7 +3,10 @@ var Twit = require('twit');
 var sets = require('simplesets');
 var MongoClient = require('mongodb').MongoClient
 var format = require('util').format;
+var _ = require('underscore');
 
+
+// set up process.env for sendgrid and twitter api and mongo hq keys
 var sendgrid = null;
 if (process.env.SENDGRID_USERNAME && process.env.SENDGRID_PASSWORD) {
   sendgrid = require('sendgrid')(process.env.SENDGRID_USERNAME, process.env.SENDGRID_PASSWORD);
@@ -15,8 +18,11 @@ var accessToken = process.env.ACCESS_TOKEN;
 var accessTokenSecret = process.env.ACCESS_TOKEN_SECRET;
 var dbConnStr = process.env.MONGOHQ_URL;
 
-var path = 'followers/ids';
+var followersPath = 'followers/ids';
+
+// use your own username
 var user = 'boundsj';
+var emailAddress = 'jesse@rebounds.net'
 
 var T = new Twit({
   consumer_key: consumerKey,
@@ -25,62 +31,95 @@ var T = new Twit({
   access_token_secret: accessTokenSecret
 });
 
-util.log('GET: ' + path);
-T.get(path, {screen_name: user}, function(err, reply) {
+var collection;
+var database;
+var lostFollowers;
+var gainedFollowers;
+var twitterResponse;
+var resolvedLostFollowers = new Array();
+var resolvedGainedFollowers = new Array();
+var userIdResolutionsReq = 0;
+var userIdResolutions = 0;
+
+util.log('GET: ' + followersPath);
+T.get(followersPath, {screen_name: user}, processTwitterResponse);
+
+function processTwitterResponse(err, reply) {
   if(err) throw err;
 
   util.log('GET: successful');
+  twitterResponse = reply;
 
   util.log('Connecting to db...');
   MongoClient.connect(dbConnStr, function(err, db) {
     if(err) throw err;
     util.log('Connected.');
 
-    var collection = db.collection('friend_ids');
-
-    collection.find({'_id': 'friends'}).toArray(function(err, results) {
-      if(err) throw err;
-
-      if (results.length) {
-        var result = results[0];
-        util.log('Analyzing followers...');
-
-        var previousSet = new sets.Set(result['ids']);
-        var currentSet = new sets.Set(reply['ids']);
-        var difference = previousSet.difference(currentSet).array();
-
-        var lostFollowers = new Array();
-        var gainedFollowers = new Array();
-        difference.forEach(function(element) {
-          if (currentSet.has(element)) {
-            gainedFollowers.push(element);
-          } else {
-            lostFollowers.push(element);
-          }
-        });
-
-        util.log('Report:');
-        util.log('lost: ' + lostFollowers);
-        util.log('gained: ' + gainedFollowers);
-
-        if (lostFollowers.length || gainedFollowers.length) {
-          sendgrid.send({
-            to: 'jesse@rebounds.net',
-            from: 'twitterdelta@rebounds.net',
-            subject: 'Your followers changed!',
-            text: 'lost: ' + lostFollowers + ' -- ' + 'gained: ' + gainedFollowers
-          }, function(err, json) {
-            if (err) { return console.error(err); }
-              console.log(json);
-          });
-        }
-      }
-
-      collection.update({'_id': 'friends'}, {$set: {'ids': reply['ids']}}, {'upsert': true}, function(err, docs) {
-        if(err) throw err;
-        db.close();
-      });
-    });
+    database = db;
+    collection = database.collection('friend_ids');
+    collection.find({'_id': 'friends'}).toArray(processCollection);
   });
-});
+}
+
+function processCollection(err, results) {
+  if(err) throw err;
+
+  if (results.length) {
+    var followersFromDB = results[0];
+    util.log('Analyzing followers...');
+
+    var previousSet = new sets.Set(followersFromDB['ids']);
+    var currentSet = new sets.Set(twitterResponse['ids']);
+    lostFollowers = previousSet.difference(currentSet).array();
+    gainedFollowers = currentSet.difference(previousSet).array();
+
+    if (lostFollowers.length) {
+      T.get('users/lookup', {user_id: lostFollowers}, handleUsersLookup);
+      userIdResolutionsReq++;
+    }
+    if (gainedFollowers.length) {
+      T.get('users/lookup', {user_id: gainedFollowers}, handleUsersLookup);
+      userIdResolutionsReq++;
+    }
+    if (userIdResolutionsReq === 0) {
+      collection.update({'_id': 'friends'}, {$set: {'ids': twitterResponse['ids']}}, {'upsert': true}, updateCollectionCallback);
+    }
+  }
+}
+
+function handleUsersLookup(err, reply) {
+  if (err) throw err;
+  var resolved = _.map(reply, function(user) { return {'name': user.name, 'screenName': user.screen_name, 'id': user.id} });
+
+  if (_.contains(lostFollowers, resolved[0].id)) {
+    lostFollowers = resolved;
+    console.log('lost:', lostFollowers);
+  } else {
+    gainedFollowers = resolved;
+    console.log('gained:', gainedFollowers);
+  }
+
+  userIdResolutions++;
+
+  if (userIdResolutions === userIdResolutionsReq) {
+    collection.update({'_id': 'friends'}, {$set: {'ids': twitterResponse['ids']}}, {'upsert': true}, updateCollectionCallback);
+  }
+}
+
+function updateCollectionCallback(err, docs) {
+  if(err) throw err;
+  database.close();
+
+  if (lostFollowers.length || gainedFollowers.length) {
+    sendgrid.send({
+      to: emailAddress,
+      from: 'twitterdelta@rebounds.net',
+      subject: 'Your followers changed!',
+      text: 'lost: \n' + _.pluck(lostFollowers, 'screenName') + '\n\n' + 'gained: \n' + _.pluck(gainedFollowers, 'screenName')
+    }, function(err, json) {
+      if (err) { return console.error(err); }
+      console.log(json);
+    });
+  }
+}
 
